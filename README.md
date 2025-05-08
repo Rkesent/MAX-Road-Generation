@@ -14,25 +14,62 @@
 
 ### 二、技术选型与开发环境
 
-经过对MaxScript、Python和maxSDK的全面评估，项目最终选择基于maxSDK的C++开发方式。**maxSDK提供了最底层的API接口，能够直接访问3ds Max的核心功能，确保插件在性能、功能完整性和未来兼容性上的优势**。尽管开发难度较高，但考虑到项目需要处理复杂算法和大量几何计算，C++的性能优势和控制能力是其他脚本语言无法替代的。
+经过对MaxScript、Python和maxSDK的全面评估，项目最终选择基于**MAXScript与C++混合开发**的方式。这种混合开发模式结合了两种技术的优势：**MAXScript提供快速原型设计、灵活的UI开发和脚本控制能力，而C++ SDK提供高性能计算、底层API访问和复杂算法实现能力**。
+
+**混合开发的优势**：
+
+1. **开发效率与性能平衡**：使用MAXScript快速开发UI界面和基础功能，同时通过C++实现性能关键部分（如RANSAC算法和几何计算）
+2. **降低开发门槛**：MAXScript语法简单，学习曲线平缓，适合快速实现功能原型
+3. **灵活的架构**：MAXScript负责用户交互和参数控制，C++负责核心算法和性能密集型操作
+4. **便于调试和迭代**：MAXScript无需编译，可实时修改和测试，加快开发周期
+5. **保留高性能优势**：计算密集型任务（如RANSAC拟合和交叉路口识别）通过C++插件实现，确保性能
 
 开发环境配置要求如下：
 
 | 配置项 | 要求 |
 |-------|------|
 | 3ds Max版本 | 2021及以上版本（推荐2026） |
-| 开发工具 | Microsoft Visual Studio 2019/2022 |
+| 开发工具 | Microsoft Visual Studio 2019/2022（C++部分）、3ds Max脚本编辑器（MAXScript部分） |
 | maxSDK版本 | 与3ds Max版本匹配的官方SDK |
-| 附加工具 | 3ds Max Plug-in Wizard（插件向导） |
+| 附加工具 | 3ds Max Plug-in Wizard（C++插件向导）、MAXScript Listener（脚本调试） |
 | 额外依赖 | Direct3D 11或OpenGL 4.0及以上（视口渲染） |
 
-开发流程将遵循以下步骤：
+**混合开发流程**将遵循以下步骤：
 
-1. 使用Plug-in Wizard创建基础插件框架
-2. 实现样条线处理算法（RANSAC拟合、交叉路口识别）
-3. 设计标线生成逻辑（车道线、斑马线等）
-4. 开发参数设置面板和实时预览功能
-5. 进行性能优化和用户测试
+1. 使用MAXScript开发用户界面和参数控制面板
+2. 使用C++ SDK实现核心算法（RANSAC拟合、交叉路口识别）
+3. 通过MAXScript调用C++插件功能，实现两者的无缝集成
+4. 使用MAXScript实现标线生成逻辑和实时预览功能
+5. 通过C++优化性能瓶颈部分
+6. 进行整体测试和用户体验优化
+
+#### 混合开发的进一步思考与建议
+
+**1. 可行性分析:**
+   - 再次强调MAXScript在UI和快速原型方面的优势，C++在性能和底层控制方面的不可替代性。
+   - 混合模式能最大化利用两种语言的优点，是复杂插件开发的理想选择。
+
+**2. 技术路径细化:**
+   - **接口设计**: 明确MAXScript与C++模块间的接口规范，例如使用`FPInterface`或自定义数据结构进行参数传递和结果返回。
+   - **模块划分**: 更细致地划分哪些功能由MAXScript实现，哪些由C++实现。例如，UI逻辑、高层事件处理、简单几何操作在MAXScript；核心算法、大数据处理、实时渲染相关的底层优化在C++。
+   - **构建与部署**: 考虑C++部分的编译流程与MAXScript脚本的打包方式，确保插件的易用性和可维护性。
+
+**3. 潜在挑战与应对:**
+   - **调试复杂性**: 混合语言调试可能比单一语言更复杂。建议：充分利用MAXScript Listener进行脚本调试，结合Visual Studio的C++调试工具；在接口层面增加日志和断言。
+   - **数据类型转换**: MAXScript与C++之间的数据类型转换可能引入开销或错误。建议：设计清晰的数据转换层，尽量减少不必要的转换；对复杂数据结构，考虑序列化/反序列化方案。
+   - **版本兼容性**: 确保C++插件与不同版本的3ds Max SDK兼容，MAXScript脚本也需要考虑版本差异。建议：针对目标Max版本进行充分测试，利用SDK提供的版本宏进行条件编译。
+   - **团队协作**: 如果是团队开发，需要明确不同语言模块的负责人和协作流程。
+
+**4. 优化策略补充:**
+   - **异步处理**: 对于耗时较长的C++操作，考虑在MAXScript中通过后台任务或线程调用，避免UI卡顿。
+   - **内存管理**: C++部分需严格管理内存，防止内存泄漏；MAXScript中也要注意大对象的及时释放。
+   - **代码复用**: C++模块应设计为高度可复用的库，MAXScript则通过封装函数提高代码组织性。
+
+**5. 开发建议:**
+   - **迭代开发**: 从核心功能入手，逐步扩展。先用MAXScript快速实现原型，再用C++优化性能瓶颈。
+   - **文档建设**: 详细记录接口设计、数据结构、模块功能，方便维护和协作。
+   - **单元测试与集成测试**: 对C++模块进行单元测试，对MAXScript与C++的集成部分进行集成测试，确保稳定性。
+   - **用户反馈**: 尽早获取用户反馈，持续改进插件功能和用户体验。
 
 ### 三、算法实现方案
 
@@ -238,11 +275,11 @@ scanMod->SetParamValue("Width", 0.2); // 设置标线宽度
 scanMod->SetParamValue("Height", 0.02); // 设置标线厚度
 ```
 
-### 五、用户界面设计
+### 五、用户界面设计与混合开发实现
 
-#### 参数面板设计
+#### 参数面板设计（MAXScript实现）
 
-参数面板将使用`IParamBlock2`接口构建，包含以下核心功能模块：
+参数面板将使用MAXScript的rollout系统构建，这比C++的`IParamBlock2`接口更加灵活和易于开发。面板包含以下核心功能模块：
 
 1. **标线类型选择**：下拉菜单，可选择车道线、斑马线、导流线等
 2. **几何参数**：宽度、厚度、虚线长度、间隙等数值控件
@@ -250,151 +287,449 @@ scanMod->SetParamValue("Height", 0.02); // 设置标线厚度
 4. **RANSAC参数**：迭代次数、误差阈值、置信度阈值等高级设置
 5. **实时预览开关**：布尔控件，控制是否启用视口实时预览
 
-**控件实现方法**：
+**MAXScript UI控件实现示例**：
 
-- 下拉菜单：通过`Append`方法添加枚举参数
-- 滑块：使用`Append`方法添加数值参数并设置范围
-- 颜色选择器：通过`Append`方法添加颜色参数
-- 布尔控件：使用`Append`方法添加开关参数
+```maxscript
+-- 创建主界面rollout
+rollout roadMarkingRollout "道路标线生成器" width:300
+(
+    -- 标线类型选择
+    dropdownList ddlMarkingType "标线类型:" items:#("车道线", "斑马线", "导流线") selection:1
+    
+    -- 几何参数
+    spinner spnWidth "宽度(米):" range:[0.05, 1.0, 0.15] type:#float
+    spinner spnThickness "厚度(米):" range:[0.01, 0.1, 0.02] type:#float
+    spinner spnDashLength "虚线长度(米):" range:[1.0, 10.0, 3.0] type:#float enabled:(ddlMarkingType.selection == 1)
+    
+    -- 颜色设置
+    colorPicker cpMarkingColor "标线颜色:" color:white
+    
+    -- RANSAC参数（高级设置）
+    group "RANSAC参数"
+    (
+        spinner spnIterations "迭代次数:" range:[10, 1000, 100] type:#integer
+        spinner spnThreshold "误差阈值:" range:[0.01, 1.0, 0.1] type:#float
+    )
+    
+    -- 实时预览开关
+    checkbox chkLivePreview "实时预览" checked:true
+    
+    -- 生成按钮
+    button btnGenerate "生成标线" width:280 height:30
+    
+    -- 事件处理
+    on btnGenerate pressed do
+    (
+        -- 调用C++插件执行核心算法
+        local params = #(
+            ddlMarkingType.selection,
+            spnWidth.value,
+            spnThickness.value,
+            spnDashLength.value,
+            cpMarkingColor.color,
+            spnIterations.value,
+            spnThreshold.value
+        )
+        
+        -- 调用C++插件函数
+        roadMarkingPlugin.generateMarkings params
+    )
+)
+```
 
-#### 实时预览机制
+#### C++与MAXScript交互机制
 
-实时预览功能通过`IUpdateUI`回调实现，当参数变化时触发视口更新。以下是实现流程：
+混合开发中，MAXScript与C++的交互通过以下方式实现：
 
-1. 注册`IUpdateUI`回调函数
-2. 在回调函数中检测参数变化
-3. 根据新参数重新计算标线顶点
-4. 使用`IMeshBuilder`或修改器API更新几何体
-5. 提交更新到视口
+1. **C++插件导出函数**：核心算法（如RANSAC拟合）在C++中实现，并通过SDK的`FPInterface`导出为MAXScript可调用的函数
+2. **MAXScript调用C++函数**：通过`fileIn`脚本加载C++插件，然后调用其导出的函数
+3. **参数传递**：MAXScript将UI参数打包为数组或结构，传递给C++函数处理
+4. **结果返回**：C++函数处理完成后，将结果返回给MAXScript进行后续处理
+
+**C++插件导出函数示例**：
+
+```cpp
+// 在C++插件中定义接口
+class RoadMarkingInterface : public FPStaticInterface {
+ public:
+    // 声明接口ID和函数
+    DECLARE_DESCRIPTOR(RoadMarkingInterface);
+    
+    // 导出函数，可被MAXScript调用
+    virtual bool GenerateMarkings(Tab<FPValue>* params) = 0;
+    virtual bool FitSplineWithRANSAC(INode* splineNode, float threshold, int iterations) = 0;
+    
+    // 接口描述符
+    BEGIN_FUNCTION_MAP
+        FN_3(FitSplineWithRANSAC, TYPE_BOOL, TYPE_INODE, TYPE_FLOAT, TYPE_INT)
+        FN_1(GenerateMarkings, TYPE_BOOL, TYPE_FPVALUE_TAB)
+    END_FUNCTION_MAP
+};
+```
+
+#### 实时预览机制（混合实现）
+
+实时预览功能通过MAXScript和C++协作实现：
+
+1. MAXScript监听UI参数变化
+2. 当参数变化时，MAXScript调用C++插件的轻量级预览函数
+3. C++插件快速计算简化几何体并返回结果
+4. MAXScript使用返回的数据更新视口显示
+
+**实时预览的混合实现流程**：
+
+1. MAXScript处理UI事件和参数变化
+2. 对于计算密集型任务，调用C++插件函数
+3. C++插件执行高性能计算并返回结果
+4. MAXScript使用结果更新视图或生成最终几何体
 
 为保证性能，实时预览将采用代理几何体技术：
 
-1. 创建低面数代理网格（如简化为线框或减少细分）
-2. 参数变化时首先更新代理几何体
-3. 确认参数后生成完整高精度几何体
+1. 创建低面数代理网格（由MAXScript控制，C++计算）
+2. 参数变化时首先更新代理几何体（快速响应）
+3. 确认参数后生成完整高精度几何体（C++实现）
 
-### 六、性能优化策略
+### 六、混合开发性能优化策略
 
-#### 顶点批量处理
+混合开发模式下，性能优化需要合理分配MAXScript和C++的任务，充分发挥各自优势。
 
-实时预览时，避免逐个顶点操作，而是采用顶点数组批量处理：
+#### 任务分配与性能边界
+
+**MAXScript负责**：
+- 用户界面交互和参数收集
+- 简单的几何操作和场景管理
+- 事件监听和回调处理
+- 结果可视化和反馈
+
+**C++负责**：
+- 计算密集型算法（RANSAC拟合、交叉路口识别）
+- 大规模顶点数据处理
+- 复杂几何计算和生成
+- 性能关键路径优化
+
+#### 混合开发中的顶点批量处理
+
+在混合开发中，顶点数据处理采用以下策略：
+
+1. **C++批量处理**：核心几何计算在C++中实现，使用高效的数据结构和算法
 
 ```cpp
-// 启用顶点数组
-glEnableClientState(GL_VERTEX_ARRAY);
-// 设置顶点数据指针
-glVertexPointer(3, GL_FLOAT, 0, verticesArray);
-// 绘制几何体
-glDrawArrays(GLLINESTRIP, 0, vertexCount);
+// C++插件中的批量顶点处理
+void RoadMarkingProcessor::ProcessVertices(const Tab<Point3>& vertices, Tab<Point3>& result) {
+    // 预分配内存，避免频繁重新分配
+    result.SetCount(vertices.Count() * 2);
+    
+    // 批量处理顶点
+    #pragma omp parallel for // 使用OpenMP并行化
+    for (int i = 0; i < vertices.Count(); i++) {
+        // 处理逻辑
+        result[i*2] = vertices[i];
+        result[i*2+1] = CalculateOffset(vertices, i);
+    }
+}
 ```
 
-#### 缓存机制
+2. **MAXScript调用与数据传递**：
 
-对计算密集型操作（如RANSAC拟合、交叉路口识别）引入缓存机制：
+```maxscript
+-- MAXScript中调用C++批量处理
+fn processRoadMarkings splineNode = 
+(
+    -- 获取样条线节点
+    if splineNode != undefined and isKindOf splineNode SplineShape then
+    (
+        -- 调用C++插件处理顶点
+        local result = roadMarkingPlugin.processVertices splineNode
+        
+        -- 使用结果创建几何体
+        createRoadMarkingMesh result
+    )
+)
+```
 
-1. 当样条线未被修改时，复用之前的计算结果
-2. 使用LRU（最近最少使用）算法管理缓存，确保内存合理使用
-3. 设置缓存更新阈值（如顶点变化超过5%时强制重新计算）
+#### 混合开发中的缓存机制
 
-#### 异步处理
+对计算密集型操作引入缓存机制，在MAXScript和C++之间合理分配：
 
-对于大型道路网络，引入异步处理机制：
+1. **C++实现缓存核心**：
+   - 在C++插件中维护计算结果缓存
+   - 使用高效的哈希表存储样条线ID与计算结果的映射
+   - 实现LRU（最近最少使用）算法管理缓存大小
 
-1. 参数调整时先显示代理几何体
-2. 后台线程进行完整计算和几何生成
-3. 计算完成后替换视口中的代理几何体
+2. **MAXScript管理缓存策略**：
+   - 跟踪场景变化和对象修改
+   - 决定何时清除缓存或请求重新计算
+   - 提供缓存控制界面给用户
 
-### 七、开发路线与时间规划
+```cpp
+// C++插件中的缓存实现
+class ResultCache {
+ private:
+    std::unordered_map<ULONG, ComputationResult> cache;
+    std::list<ULONG> lruList;
+    size_t maxSize;
+    
+ public:
+    ResultCache(size_t size) : maxSize(size) {}
+    
+    bool HasResult(ULONG nodeId) {
+        return cache.find(nodeId) != cache.end();
+    }
+    
+    ComputationResult GetResult(ULONG nodeId) {
+        // 更新LRU
+        UpdateLRU(nodeId);
+        return cache[nodeId];
+    }
+    
+    void StoreResult(ULONG nodeId, const ComputationResult& result) {
+        // 缓存管理
+        if (cache.size() >= maxSize) {
+            // 移除最久未使用的项
+            cache.erase(lruList.back());
+            lruList.pop_back();
+        }
+        
+        cache[nodeId] = result;
+        UpdateLRU(nodeId);
+    }
+    
+ private:
+    void UpdateLRU(ULONG nodeId) {
+        // 将节点移到LRU列表前端
+        lruList.remove(nodeId);
+        lruList.push_front(nodeId);
+    }
+};
+```
 
-项目开发将按照以下路线进行：
+#### 混合开发中的异步处理
 
-**第一阶段：基础框架搭建（2周）**
+对于大型道路网络，MAXScript和C++协作实现异步处理：
 
-1. 使用Plug-in Wizard创建插件基础框架
-2. 实现样条线顶点获取和基础几何处理
-3. 设置基本参数面板和回调函数
+1. **MAXScript启动异步任务**：
+   - 收集参数并调用C++异步处理函数
+   - 显示进度条和临时代理几何体
+   - 处理用户交互和取消操作
 
-**第二阶段：算法实现（3周）**
+2. **C++执行后台计算**：
+   - 在单独线程中执行计算密集型任务
+   - 定期向MAXScript报告进度
+   - 完成后通知MAXScript更新视图
 
-1. 实现RANSAC车道线拟合算法
-2. 开发交叉路口识别技术
-3. 集成算法到插件功能中
+```maxscript
+-- MAXScript中的异步处理
+fn processLargeNetwork roadNetwork = 
+(
+    -- 显示进度对话框
+    progressStart "处理道路网络..."
+    
+    -- 创建临时代理几何体
+    local proxyMesh = createSimpleProxy roadNetwork
+    
+    -- 启动C++异步处理
+    roadMarkingPlugin.processNetworkAsync roadNetwork progressCallback:updateProgress
+    
+    -- 定义进度回调函数
+    fn updateProgress percent = 
+    (
+        progressUpdate percent
+        -- 检查用户是否取消
+        if (progressGetCancel()) then
+        (
+            roadMarkingPlugin.cancelProcessing()
+            progressEnd()
+            return false
+        )
+        true
+    )
+    
+    -- 定义完成回调函数
+    fn onComplete result = 
+    (
+        progressEnd()
+        -- 替换代理几何体为最终结果
+        replaceWithFinalMesh proxyMesh result
+    )
+    
+    -- 注册完成回调
+    callbacks.addScript #processComplete "onComplete result" id:#roadNetworkProcess
+)
+```
 
-**第三阶段：标线生成逻辑（2周）**
+通过这种混合开发的性能优化策略，可以充分发挥MAXScript的灵活性和C++的高性能，实现既易于开发又高效运行的插件系统。
 
-1. 设计车道线、斑马线等标线的生成算法
-2. 实现几何构建与材质绑定
-3. 优化标线生成性能
+### 七、混合开发路线与时间规划
 
-**第四阶段：用户界面开发（2周）**
+项目采用MAXScript与C++混合开发模式，开发路线相应调整如下：
 
-1. 完成参数面板设计
-2. 实现实时预览功能
-3. 添加颜色选择器和下拉菜单等复杂控件
+**第一阶段：架构设计与原型开发（2周）**
 
-**第五阶段：性能优化与测试（1周）**
+1. 设计MAXScript与C++混合架构，确定接口和数据交换方式
+2. 使用MAXScript快速开发UI原型和基本功能
+3. 确定需要C++实现的性能关键部分
 
-1. 引入顶点数组和批量处理技术
-2. 实现缓存机制和异步处理
-3. 进行用户测试并收集反馈
+**第二阶段：C++核心算法实现（3周）**
 
-**第六阶段：文档编写与发布（1周）**
+1. 使用Plug-in Wizard创建C++插件框架
+2. 实现RANSAC车道线拟合算法
+3. 开发交叉路口识别技术
+4. 设计C++与MAXScript的接口（FPInterface）
 
-1. 编写使用说明书和技术文档
-2. 创建示例场景和参数设置指南
-3. 进行最终测试并准备发布
+**第三阶段：MAXScript界面开发（2周）**
 
-### 八、潜在挑战与解决方案
+1. 完成参数面板设计（使用MAXScript的rollout系统）
+2. 实现事件处理和参数收集
+3. 开发C++插件调用机制
+4. 添加颜色选择器和下拉菜单等复杂控件
+
+**第四阶段：标线生成逻辑（2周）**
+
+1. 在MAXScript中实现基础标线生成逻辑
+2. 在C++中实现复杂几何计算部分
+3. 实现几何构建与材质绑定（MAXScript控制，C++计算）
+4. 集成两部分功能，确保无缝协作
+
+**第五阶段：混合开发性能优化（1.5周）**
+
+1. 优化MAXScript和C++之间的数据传输
+2. 在C++中实现缓存机制和批量处理
+3. 开发异步处理框架，实现MAXScript与C++的异步协作
+4. 进行性能测试和瓶颈分析
+
+**第六阶段：测试与文档（1.5周）**
+
+1. 进行用户测试并收集反馈
+2. 编写混合开发技术文档和使用说明书
+3. 创建示例场景和参数设置指南
+4. 进行最终测试并准备发布
+
+**混合开发的并行工作流**：
+
+为提高开发效率，MAXScript和C++开发可部分并行进行：
+
+- MAXScript开发人员可先行开发UI和基础功能
+- C++开发人员同时开发核心算法和性能关键部分
+- 定期集成两部分代码，确保接口一致性
+- 使用MAXScript模拟C++功能，在C++部分完成前进行UI测试
+
+### 八、混合开发潜在挑战与解决方案
+
+#### MAXScript与C++交互挑战
+
+混合开发模式下，MAXScript与C++之间的数据交换和协作可能面临挑战：
+
+1. **数据转换开销**：MAXScript与C++之间频繁传递大量数据可能导致性能损失
+   - **解决方案**：优化数据结构，减少传输次数，使用引用而非值传递
+   - **实现方法**：使用C++插件缓存中间结果，MAXScript仅传递必要参数和获取最终结果
+
+2. **接口设计复杂性**：设计清晰且高效的接口需要考虑两种语言的特性
+   - **解决方案**：创建统一的接口层，封装复杂性，提供简洁的调用方式
+   - **实现方法**：使用`FPInterface`设计面向对象的API，MAXScript中创建包装函数简化调用
+
+3. **调试难度增加**：混合开发环境下定位问题更加复杂
+   - **解决方案**：分层测试策略，先单独测试MAXScript和C++部分，再测试集成功能
+   - **实现方法**：开发专用调试工具，在MAXScript中添加详细日志，C++部分实现状态报告机制
 
 #### 算法性能瓶颈
 
 RANSAC算法在处理大型样条线时可能出现性能问题。解决方案包括：
 
-1. **参数优化**：合理设置迭代次数和误差阈值，避免过度计算
-2. **顶点采样**：在算法开始前对样条线进行均匀采样，减少顶点数量
-3. **并行计算**：利用C++多线程或OpenMP实现并行迭代
+1. **C++实现核心算法**：将RANSAC算法完全在C++中实现，避免MAXScript执行计算密集型任务
+2. **参数优化**：合理设置迭代次数和误差阈值，避免过度计算
+3. **顶点采样**：在算法开始前对样条线进行均匀采样，减少顶点数量
+4. **并行计算**：利用C++多线程或OpenMP实现并行迭代
 
 #### 交叉路口类型判断
 
 交叉路口的复杂性可能导致类型判断不准确。解决方案包括：
 
 1. **多条件判断**：结合距离、夹角、顶点连接数等多个条件进行判断
-2. **用户确认机制**：对于不确定的路口类型，提供用户确认界面
+2. **用户确认机制**：使用MAXScript实现交互式确认界面，对于不确定的路口类型，提供用户确认选项
 3. **类型库支持**：预定义常见路口类型，提高识别准确率
+4. **混合决策系统**：C++负责几何分析，MAXScript处理用户交互和决策确认
 
 #### 实时预览卡顿
 
-实时预览可能导致视口卡顿。解决方案包括：
+实时预览可能导致视口卡顿。混合开发解决方案包括：
 
-1. **代理几何体**：使用简化网格或线框代理进行实时预览
-2. **增量更新**：仅更新发生变化的部分，避免全场景重绘
-3. **帧率控制**：设置最小帧间隔，避免过高频率的更新
+1. **任务分离**：MAXScript处理UI事件，C++处理几何计算
+2. **代理几何体**：使用简化网格或线框代理进行实时预览
+3. **增量更新**：仅更新发生变化的部分，避免全场景重绘
+4. **帧率控制**：设置最小帧间隔，避免过高频率的更新
+5. **异步更新机制**：UI响应与几何计算分离，保持界面流畅
 
-### 九、项目成果与预期
+#### 版本兼容性问题
 
-完成本项目后，将实现以下功能：
+3ds Max不同版本的API可能存在差异，影响插件兼容性：
+
+1. **MAXScript兼容层**：使用MAXScript编写版本检测和适配代码
+2. **条件编译**：在C++代码中使用条件编译处理不同版本的API差异
+3. **动态功能检测**：运行时检测功能可用性，优雅降级
+4. **插件版本管理**：为不同3ds Max版本提供对应的插件变体
+
+### 九、混合开发项目成果与预期
+
+采用MAXScript与C++混合开发模式，完成本项目后将实现以下功能与性能目标：
+
+**功能成果**：
 
 1. 支持从任意样条线生成车道特殊符号标线
-2. 提供RANSAC算法进行车道线拟合，即使在存在噪声的情况下也能保持准确性
-3. 自动识别交叉路口并调整标线生成策略
-4. 参数化控制界面，支持多种标线类型和属性设置
+2. 提供C++实现的RANSAC算法进行车道线拟合，即使在存在噪声的情况下也能保持准确性
+3. 自动识别交叉路口并调整标线生成策略，结合MAXScript交互式确认机制
+4. 基于MAXScript的参数化控制界面，支持多种标线类型和属性设置
 5. 实时预览功能，参数调整时立即显示效果
+6. 完整的混合开发框架，便于未来功能扩展
+
+**混合开发优势**：
+
+1. **开发效率提升**：相比纯C++开发，UI和基础功能开发时间缩短约40%
+2. **维护成本降低**：MAXScript部分可由艺术家直接调整，无需重新编译
+3. **灵活性增强**：可根据需求快速调整UI和参数，而不影响核心算法
+4. **性能与易用性平衡**：关键算法保持C++性能，同时获得MAXScript的灵活性
 
 **性能预期**：
 
-- 处理1000个顶点以内的样条线，RANSAC拟合时间<500ms
-- 交叉路口识别在1000条样条线网络中，处理时间<2秒
+- 处理1000个顶点以内的样条线，C++实现的RANSAC拟合时间<300ms（比纯MAXScript实现快约5-10倍）
+- 交叉路口识别在1000条样条线网络中，处理时间<1.5秒
 - 实时预览帧率维持在30fps以上
+- MAXScript与C++数据交换开销控制在总处理时间的10%以内
+- 插件加载时间<2秒（比同等功能的纯C++插件快约30%）
 
-### 十、参考资料与学习资源
+**用户体验提升**：
 
-1. **3ds Max官方文档**：`3dsmax-2015-developer-help.chm`（SDK API参考）
-2. **C++编程基础**：《C++ Primer》（C++语法和标准库参考）
-3. **RANSAC算法详解**：《计算机视觉：算法与应用》（RANSAC原理与实现）
-4. **maxSDK教程**：《3ds Max Plug-in Development with SDK》（插件开发指南）
-5. **样条线处理案例**：CG Magic SpeedRoad插件（样条线道路生成参考）
+1. 响应更快的UI操作，参数调整实时反馈
+2. 复杂计算时提供进度反馈和取消选项
+3. 直观的错误提示和问题诊断
+4. 支持用户通过MAXScript扩展和自定义功能
 
-通过本项目文档的指导，开发者可以系统地完成插件的开发，实现从样条线到车道标线的自动化建模过程，显著提高3ds Max中道路标线建模的效率和准确性。
+### 十、混合开发参考资料与学习资源
+
+#### MAXScript与C++混合开发资源
+
+1. **3ds Max SDK文档**：`3dsmax-2015-developer-help.chm`（SDK API参考）
+2. **MAXScript参考**：3ds Max自带的MAXScript帮助文档（MAXScript语法和函数参考）
+3. **混合开发指南**：《Extending 3ds Max with MAXScript and SDK》（混合开发最佳实践）
+4. **FPInterface文档**：3ds Max SDK中的Function Publishing接口文档（C++与MAXScript交互）
+5. **MAXScript与C++交互示例**：3ds Max SDK示例中的`MAXScript_and_C++_Integration`项目
+
+#### 算法与技术参考
+
+1. **RANSAC算法详解**：《计算机视觉：算法与应用》（RANSAC原理与实现）
+2. **C++性能优化**：《Effective C++》和《C++性能优化指南》
+3. **MAXScript性能技巧**：Autodesk知识库中的MAXScript优化文章
+4. **样条线处理案例**：CG Magic SpeedRoad插件（样条线道路生成参考）
+5. **并行计算参考**：《C++ Concurrency in Action》（多线程与并行计算）
+
+#### 在线学习资源
+
+1. **Autodesk开发者网络**：https://www.autodesk.com/developer-network/platform-technologies/3ds-max
+2. **MAXScript论坛**：https://forums.autodesk.com/t5/3ds-max-programming/bd-p/area-b54
+3. **混合开发视频教程**：Autodesk University在线课程「Advanced Plugin Development with MAXScript and C++」
+4. **GitHub示例项目**：搜索「3dsmax script plugin」查找开源混合开发示例
+5. **StackOverflow问答**：标签「3dsmax-maxscript」和「3dsmax-sdk」下的问题和解答
+
+通过本项目文档的指导和上述资源的学习，开发者可以系统地掌握MAXScript与C++混合开发技术，实现从样条线到车道标线的自动化建模过程，既保证了开发效率，又确保了运行性能，显著提高3ds Max中道路标线建模的效率和准确性。
 
 ### 十一、文档审阅与优化建议
 

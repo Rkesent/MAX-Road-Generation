@@ -1,12 +1,7 @@
 {
   "ExpandedNodes": [
     "",
-    "\\src",
-    "\\src\\build",
-    "\\src\\build\\CMakeFiles",
-    "\\src\\out",
-    "\\src\\out\\build"
+    "\\src"
   ],
-  "SelectedNode": "\\INSTALL.md",
   "PreviewInSolutionExplorer": false
 }
