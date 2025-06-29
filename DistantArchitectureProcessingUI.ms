@@ -39,6 +39,83 @@ function getActualElementCount polyObject = (
     )
 )
 
+-- 安全创建和使用层的辅助函数
+function safeCreateLayer layerName = (
+    local theLayer = undefined
+    try (
+        -- 先检查层是否已存在
+        theLayer = layerManager.getLayerFromName layerName
+        
+        -- 如果层不存在，则创建新层
+        if theLayer == undefined then (
+            theLayer = layerManager.newLayerFromName layerName
+            format "创建新层: %\n" layerName
+        ) else (
+            format "使用现有层: %\n" layerName
+        )
+    ) catch (
+        format "创建层 '%' 时出错: %\n" layerName (getCurrentException())
+    )
+    
+    return theLayer
+)
+
+-- 安全地将节点添加到层
+function safeAddNodeToLayer theLayer theNode = (
+    if theLayer != undefined and isValidNode theNode then (
+        try (
+            theLayer.addNode theNode
+            format "成功添加节点 '%' 到层 '%'\n" theNode.name theLayer.name
+            return true
+        ) catch (
+            format "添加节点 '%' 到层 '%' 时出错: %\n" theNode.name theLayer.name (getCurrentException())
+        )
+    ) else (
+        if theLayer == undefined then
+            format "错误: 层对象为undefined\n"
+        if not isValidNode theNode then
+            format "错误: 节点 '%' 无效\n" theNode
+    )
+    
+    return false
+)
+
+-- 安全创建子层函数 - 创建层并建立父子关系
+function safeCreateChildLayer parentLayerName childLayerName = (
+    local parentLayer = undefined
+    local childLayer = undefined
+    
+    try (
+        -- 获取或创建父层
+        parentLayer = LayerManager.getLayerFromName parentLayerName
+        if parentLayer == undefined then (
+            parentLayer = LayerManager.newLayerFromName parentLayerName
+            format "创建父层: %\n" parentLayerName
+        )
+        
+        -- 检查子层是否已存在
+        childLayer = LayerManager.getLayerFromName childLayerName
+        if childLayer == undefined then (
+            -- 创建子层
+            childLayer = LayerManager.newLayerFromName childLayerName
+            format "创建子层: %\n" childLayerName
+            
+            -- 建立父子关系
+            if parentLayer != undefined and childLayer != undefined then (
+                childLayer.setParent parentLayer
+                format "设置层级关系: % -> %\n" parentLayerName childLayerName
+            )
+        ) else (
+            format "子层已存在: %\n" childLayerName
+        )
+        
+        return childLayer
+    ) catch (
+        format "创建子层 '%' 时出错: %\n" childLayerName (getCurrentException())
+        return undefined
+    )
+)
+
 -- 预处理大型模型函数 - 将大型模型切割成较小的块（每块≤250元素）
 function preProcessLargeModel sourceModel maxElementsPerChunk:250 skipSizeCheck:false = (
     local chunks = #()
@@ -79,6 +156,9 @@ function preProcessLargeModel sourceModel maxElementsPerChunk:250 skipSizeCheck:
         
         format "模型 % 实际包含 % 个独立元素\n" modelName elementsArray.count
         
+        -- 创建主层 - 使用原始模型名称
+        local mainLayer = safeCreateLayer modelName
+        
         -- 创建块（每块包含多个元素，总数不超过maxElementsPerChunk）
         local currentChunkFaces = #{}
         local currentChunkElements = 0
@@ -105,23 +185,11 @@ function preProcessLargeModel sourceModel maxElementsPerChunk:250 skipSizeCheck:
                     
                     -- 命名新块，使用三位数序号格式
                     local formattedIndex = formattedPrint chunkIndex format:"03d"
-                    newChunk.name = sourceModel.name + "_chunk_" + formattedIndex
+                    newChunk.name = sourceModel.name + "-分块" + formattedIndex
                     
-                    -- 创建树形层结构
-                    local mainLayerName = sourceModel.name
-                    local subLayerName = mainLayerName + "/chunks"
-                    local chunkLayerName = subLayerName + "/" + formattedIndex
-                    
-                    -- 创建或获取主层
-                    if (layerManager.getLayerFromName mainLayerName) == undefined then
-                        local mainLayer = layerManager.newLayerFromName mainLayerName
-                    
-                    -- 创建或获取子层
-                    if (layerManager.getLayerFromName subLayerName) == undefined then
-                        local subLayer = layerManager.newLayerFromName subLayerName
-                    
-                    -- 创建块专用层
-                    local chunkLayer = layerManager.newLayerFromName chunkLayerName
+                    -- 创建块专用层 - 分块模型直接作为主模型的子层
+                    local chunkLayerName = sourceModel.name + "-分块" + formattedIndex
+                    local chunkLayer = safeCreateChildLayer modelName chunkLayerName
                     
                     -- 添加到块数组
                     if newChunk.numfaces > 0 then (
@@ -129,7 +197,9 @@ function preProcessLargeModel sourceModel maxElementsPerChunk:250 skipSizeCheck:
                         format "创建块 %: % 个元素, % 个面\n" newChunk.name currentChunkElements currentChunkFaces.numberSet
                         
                         -- 将块模型添加到对应层
-                        chunkLayer.addNode newChunk
+                        if chunkLayer != undefined then
+                            safeAddNodeToLayer chunkLayer newChunk
+                        
                         format "将块 % 添加到层 %\n" newChunk.name chunkLayerName
                         
                         chunkIndex += 1
@@ -168,23 +238,11 @@ function preProcessLargeModel sourceModel maxElementsPerChunk:250 skipSizeCheck:
             
             -- 命名新块，使用三位数序号格式
             local formattedIndex = formattedPrint chunkIndex format:"03d"
-            newChunk.name = sourceModel.name + "_chunk_" + formattedIndex
+            newChunk.name = sourceModel.name + "-分块" + formattedIndex
             
-            -- 创建树形层结构
-            local mainLayerName = sourceModel.name
-            local subLayerName = mainLayerName + "/chunks"
-            local chunkLayerName = subLayerName + "/" + formattedIndex
-            
-            -- 创建或获取主层
-            if (layerManager.getLayerFromName mainLayerName) == undefined then
-                local mainLayer = layerManager.newLayerFromName mainLayerName
-            
-            -- 创建或获取子层
-            if (layerManager.getLayerFromName subLayerName) == undefined then
-                local subLayer = layerManager.newLayerFromName subLayerName
-            
-            -- 创建块专用层
-            local chunkLayer = layerManager.newLayerFromName chunkLayerName
+            -- 创建块专用层 - 分块模型直接作为主模型的子层
+            local chunkLayerName = sourceModel.name + "-分块" + formattedIndex
+            local chunkLayer = safeCreateChildLayer modelName chunkLayerName
             
             -- 添加到块数组
             if newChunk.numfaces > 0 then (
@@ -192,7 +250,9 @@ function preProcessLargeModel sourceModel maxElementsPerChunk:250 skipSizeCheck:
                 format "创建块 %: % 个元素, % 个面\n" newChunk.name currentChunkElements currentChunkFaces.numberSet
                 
                 -- 将块模型添加到对应层
-                chunkLayer.addNode newChunk
+                if chunkLayer != undefined then
+                    safeAddNodeToLayer chunkLayer newChunk
+                
                 format "将块 % 添加到层 %\n" newChunk.name chunkLayerName
             ) else (
                 delete newChunk
@@ -207,10 +267,9 @@ function preProcessLargeModel sourceModel maxElementsPerChunk:250 skipSizeCheck:
             sourceModel.isHidden = true
             
             -- 将原始模型添加到主层
-            local mainLayer = layerManager.getLayerFromName sourceModel.name
             if mainLayer != undefined then (
-                mainLayer.addNode sourceModel
-                format "原始模型 % 已隐藏并添加到层 %\n" modelName sourceModel.name
+                safeAddNodeToLayer mainLayer sourceModel
+                format "原始模型 % 已隐藏并添加到层 %\n" modelName modelName
             ) else (
                 format "原始模型 % 已隐藏\n" modelName
             )
@@ -308,6 +367,19 @@ function formatTimeString seconds = (
     )
 )
 
+-- 计算并显示总耗时（毫秒转分钟）
+function displayTotalTime startTimeMS = (
+    local totalTimeMS = timeStamp() - startTimeMS
+    local totalTimeSeconds = totalTimeMS / 1000.0
+    local totalTimeMinutes = totalTimeSeconds / 60.0
+    
+    -- 格式化分钟显示（保留2位小数）
+    local formattedMinutes = formattedPrint totalTimeMinutes format:".2f"
+    
+    -- 返回格式化的字符串
+    return "总耗时: " + formattedMinutes + " 分钟 (" + formatTimeString totalTimeSeconds + ")"
+)
+
 -- 优化的核心拆解函数 - 高效元素分离算法
 function decomposeModel sourceModel timeEstimate:(TimeEstimateStruct totalFaces:0 estimatedElements:1 estimatedTimeSeconds:30.0) = (
     local elements = #()
@@ -382,7 +454,7 @@ function decomposeModel sourceModel timeEstimate:(TimeEstimateStruct totalFaces:
                         
                         -- 命名新元素，使用三位数序号格式
                         local formattedIndex = formattedPrint j format:"03d"
-                        newElement.name = sourceModel.name + "_" + formattedIndex
+                        newElement.name = sourceModel.name + "-元素" + formattedIndex
                         
                         -- 验证元素有效性
                         if newElement.numfaces > 0 then (
@@ -412,7 +484,7 @@ function decomposeModel sourceModel timeEstimate:(TimeEstimateStruct totalFaces:
         -- 清除源模型的选择
         try(sourceModel.selectedFaces = #{}) catch()
         
-        format "成功分离 % 个元素，耗时 % 毫秒\n" elements.count (timeStamp() - startTime)
+        format "成功分离 % 个元素，耗时 % 毫秒 (%)\n" elements.count (timeStamp() - startTime) (displayTotalTime startTime)
     )
     catch (
         local errorMsg = "分离模型时出错: " + (getCurrentException())
@@ -837,6 +909,9 @@ rollout DistantArchitectureUI "🏗️ 远景建筑处理工具 v2.0" width:520 
         addLog "执行模型分离功能 - 对模型队列中的模型进行按元素层级分离"
         addLog ("预计处理时间: " + timeString + ", 实际元素数: " + timeEstimate.estimatedElements as string)
         
+        -- 记录开始时间
+        local processingStartTime = timeStamp()
+        
         -- 处理每个模型并记录分离后的元素
         local allSeparatedElements = #()
         local totalProcessed = 0
@@ -884,57 +959,48 @@ rollout DistantArchitectureUI "🏗️ 远景建筑处理工具 v2.0" width:520 
             (
                 local objName = obj.name
                 
-                    -- 步骤1: 先为模型创建树形层结构并将原始模型添加到层中
-    addLog ("正在为模型 " + objName + " 创建树形层结构...")
-    try (
-        -- 为预处理的块创建层 - 使用原始模型名称（移除_chunk_XXX后缀）
-        local baseLayerName = objName
-        -- 如果是预处理后的块，提取原始模型名
-        if (findString objName "_chunk_") != undefined then
-        (
-            baseLayerName = substring objName 1 ((findString objName "_chunk_") - 1)
-        )
-        
-        -- 创建或获取主层
-        local modelLayer
-        if (layerManager.getLayerFromName baseLayerName) == undefined then
-        (
-            modelLayer = layerManager.newLayerFromName baseLayerName
-        )
-        else
-        (
-            modelLayer = layerManager.getLayerFromName baseLayerName
-        )
-        
-        -- 确定正确的子层路径
-        local subLayerName = baseLayerName
-        if (findString objName "_chunk_") != undefined then
-        (
-            -- 这是预处理后的块，放入chunks子层
-            local chunkNum = substring objName ((findString objName "_chunk_") + 7) -1
-            subLayerName = baseLayerName + "/chunks/" + chunkNum
-            
-            -- 确保chunks父层存在
-            if (layerManager.getLayerFromName (baseLayerName + "/chunks")) == undefined then
-            (
-                layerManager.newLayerFromName (baseLayerName + "/chunks")
-            )
-            
-            -- 创建子层
-            local subLayer = layerManager.newLayerFromName subLayerName
-            
-            -- 将模型添加到子层中
-            subLayer.addNode obj
-            
-            addLog ("已将模型 " + objName + " 添加到层 '" + subLayerName + "' 中")
-        )
-        else
-        (
-            -- 是原始模型，直接添加到主层
-            modelLayer.addNode obj
-            
-            addLog ("已将模型 " + objName + " 添加到层 '" + baseLayerName + "' 中")
-        )
+                -- 步骤1: 先为模型创建树形层结构并将原始模型添加到层中
+                addLog ("正在为模型 " + objName + " 创建树形层结构...")
+                try (
+                    -- 为预处理的块创建层 - 使用原始模型名称（移除_chunk_XXX后缀）
+                    local baseLayerName = objName
+                    local isChunk = false
+                    local chunkNum = ""
+                    
+                    -- 如果是预处理后的块，提取原始模型名
+                    if (findString objName "-分块") != undefined then
+                    (
+                        isChunk = true
+                        baseLayerName = substring objName 1 ((findString objName "-分块") - 1)
+                        chunkNum = substring objName ((findString objName "-分块") + 3) -1
+                    )
+                    
+                    -- 创建或获取主层
+                    local modelLayer = safeCreateLayer baseLayerName
+                    
+                    -- 确定正确的子层路径
+                    if isChunk then
+                    (
+                        -- 这是预处理后的块，分块模型直接作为主模型的子层
+                        local chunkLayerName = objName
+                        
+                        -- 创建块专用层
+                        local chunkLayer = safeCreateChildLayer baseLayerName chunkLayerName
+                        
+                        -- 将模型添加到块层中
+                        if chunkLayer != undefined then
+                            safeAddNodeToLayer chunkLayer obj
+                        
+                        addLog ("已将模型 " + objName + " 添加到层 '" + chunkLayerName + "' 中")
+                    )
+                    else
+                    (
+                        -- 是原始模型，直接添加到主层
+                        if modelLayer != undefined then
+                            safeAddNodeToLayer modelLayer obj
+                        
+                        addLog ("已将模型 " + objName + " 添加到层 '" + baseLayerName + "' 中")
+                    )
                 ) catch (
                     addLog ("创建层或添加模型到层时出错: " + (getCurrentException()))
                 )
@@ -946,7 +1012,7 @@ rollout DistantArchitectureUI "🏗️ 远景建筑处理工具 v2.0" width:520 
                 -- 调用实际的分离函数，传递时间估计参数
                 local separatedElements = decomposeModel obj timeEstimate:timeEstimate
                 
-                                -- 记录分离结果
+                -- 记录分离结果
                 if separatedElements.count > 0 then
                 (
                     addLog ("成功从模型 " + objName + " 分离出 " + separatedElements.count as string + " 个元素")
@@ -957,40 +1023,54 @@ rollout DistantArchitectureUI "🏗️ 远景建筑处理工具 v2.0" width:520 
                     
                     -- 确保所有分离元素都在正确的层中
                     try (
-                        -- 获取层名 - 可能是原始模型名或预处理块的基础名
-                        local layerName = objName
-                        if (findString objName "_chunk_") != undefined then
-                        (
-                            layerName = substring objName 1 ((findString objName "_chunk_") - 1)
-                        )
+                        -- 确定元素应该放在哪个层
+                        local baseLayerName = objName
+                        local elementsParentLayerName = ""
                         
-                        -- 获取已创建的层引用
-                        local modelLayer = layerManager.getLayerFromName layerName
-                        if modelLayer != undefined then
+                        -- 如果是预处理后的块，元素直接放在分块层下
+                        if (findString objName "-分块") != undefined then
                         (
-                            -- 创建elements子层
-                            local elementsLayerName = layerName + "/elements"
-                            if (layerManager.getLayerFromName elementsLayerName) == undefined then
-                            (
-                                layerManager.newLayerFromName elementsLayerName
-                            )
-                            
-                            -- 为每个元素创建单独的层并添加元素
-                            for i = 1 to separatedElements.count do
-                            (
-                                local elem = separatedElements[i]
-                                local formattedElemIndex = formattedPrint i format:"03d"
-                                local elemLayerName = elementsLayerName + "/" + formattedElemIndex
-                                local elemLayer = layerManager.newLayerFromName elemLayerName
-                                elemLayer.addNode elem
-                            )
-                            
-                            addLog ("已将 " + separatedElements.count as string + " 个元素添加到层 " + elementsLayerName + " 的子层中")
+                            elementsParentLayerName = objName
                         )
                         else
                         (
-                            addLog ("警告: 未找到层 '" + layerName + "', 无法添加分离元素")
+                            -- 如果是原始模型，元素直接放在模型层的elements子层下
+                            elementsParentLayerName = baseLayerName
                         )
+                        
+                        -- 将所有分离出来的元素直接添加到当前分块层下
+                        local targetLayer = undefined
+                        
+                        -- 获取目标层（分块层或模型层）
+                        if (findString objName "-分块") != undefined then
+                        (
+                            -- 如果是预处理后的块，获取分块层
+                            targetLayer = LayerManager.getLayerFromName objName
+                        )
+                        else
+                        (
+                            -- 如果是原始模型，获取模型层
+                            targetLayer = LayerManager.getLayerFromName objName
+                        )
+                        
+                        -- 将所有元素添加到目标层
+                        if targetLayer != undefined then
+                        (
+                            for elem in separatedElements do
+                            (
+                                if isValidNode elem then
+                                    safeAddNodeToLayer targetLayer elem
+                            )
+                        )
+                        
+                        -- 删除原始分块模型
+                        if isValidNode obj then
+                        (
+                            addLog ("删除原始分块模型: " + obj.name)
+                            delete obj
+                        )
+                        
+                        addLog ("已将 " + separatedElements.count as string + " 个元素直接添加到层 " + elementsParentLayerName + " 中")
                     ) catch (
                         addLog ("将分离元素添加到层时出错: " + (getCurrentException()))
                     )
@@ -1017,13 +1097,17 @@ rollout DistantArchitectureUI "🏗️ 远景建筑处理工具 v2.0" width:520 
             clearSelection()
             select allSeparatedElements
             
-            updateStatus ("模型分离完成，共分离出 " + totalElements as string + " 个元素")
-            addLog ("===== 完成分离 " + buildingQueue.count as string + " 个模型，共生成 " + totalElements as string + " 个元素 =====")
+            -- 显示总耗时（包括分钟）
+            local totalTimeInfo = displayTotalTime processingStartTime
+            updateStatus ("模型分离完成，共分离出 " + totalElements as string + " 个元素，" + totalTimeInfo)
+            addLog ("===== 完成分离 " + buildingQueue.count as string + " 个模型，共生成 " + totalElements as string + " 个元素，" + totalTimeInfo + " =====")
         )
         else
         (
+            -- 显示总耗时（包括分钟）
+            local totalTimeInfo = displayTotalTime processingStartTime
             updateStatus "模型分离完成，但未生成任何元素"
-            addLog "===== 分离操作完成，但未生成任何元素 ====="
+            addLog ("===== 分离操作完成，但未生成任何元素，" + totalTimeInfo + " =====")
         )
     )
     
@@ -1040,6 +1124,9 @@ rollout DistantArchitectureUI "🏗️ 远景建筑处理工具 v2.0" width:520 
         updateProgress 0
         
         addLog "执行强制预处理分块 - 不检查元素数量直接进行分块"
+        
+        -- 记录开始时间
+        local processingStartTime = timeStamp()
         
         -- 处理每个模型并记录分离后的元素
         local allProcessedModels = #()
@@ -1098,8 +1185,10 @@ rollout DistantArchitectureUI "🏗️ 远景建筑处理工具 v2.0" width:520 
             clearSelection()
             select allProcessedModels
             
-            updateStatus ("强制预处理完成，" + buildingQueue.count as string + " 个模型被分成了 " + totalChunks as string + " 个块")
-            addLog ("===== 完成强制预处理分块，" + buildingQueue.count as string + " 个模型被分成了 " + totalChunks as string + " 个块 =====")
+            -- 显示总耗时（包括分钟）
+            local totalTimeInfo = displayTotalTime processingStartTime
+            updateStatus ("强制预处理完成，" + buildingQueue.count as string + " 个模型被分成了 " + totalChunks as string + " 个块，" + totalTimeInfo)
+            addLog ("===== 完成强制预处理分块，" + buildingQueue.count as string + " 个模型被分成了 " + totalChunks as string + " 个块，" + totalTimeInfo + " =====")
             
             -- 询问是否用分块替换原始队列
             if queryBox "是否用分块后的模型替换建筑队列中的原始模型?" title:"更新队列" then
@@ -1127,8 +1216,10 @@ rollout DistantArchitectureUI "🏗️ 远景建筑处理工具 v2.0" width:520 
         )
         else
         (
-            updateStatus "强制预处理完成，但未生成任何块"
-            addLog "===== 强制预处理完成，但未生成任何块 ====="
+            -- 显示总耗时（包括分钟）
+            local totalTimeInfo = displayTotalTime processingStartTime
+            updateStatus ("强制预处理完成，但未生成任何块，" + totalTimeInfo)
+            addLog ("===== 强制预处理完成，但未生成任何块，" + totalTimeInfo + " =====")
         )
     )
     
@@ -1151,6 +1242,9 @@ rollout DistantArchitectureUI "🏗️ 远景建筑处理工具 v2.0" width:520 
         
         addLog "执行地面对齐功能 - 将已经选择的模型对齐到地形队列中的地形模型上"
         
+        -- 记录开始时间
+        local processingStartTime = timeStamp()
+        
         -- 模拟处理过程
         local targetTerrain = terrainQueue[1] -- 使用第一个地形作为目标
         for i = 1 to buildingQueue.count do
@@ -1167,7 +1261,10 @@ rollout DistantArchitectureUI "🏗️ 远景建筑处理工具 v2.0" width:520 
         )
         
         updateProgress 100
-        updateStatus "地面对齐完成"
+        -- 显示总耗时（包括分钟）
+        local totalTimeInfo = displayTotalTime processingStartTime
+        updateStatus ("地面对齐完成，" + totalTimeInfo)
+        addLog ("===== 地面对齐完成，" + totalTimeInfo + " =====")
     )
     
     on btnMergeModel pressed do
@@ -1183,6 +1280,9 @@ rollout DistantArchitectureUI "🏗️ 远景建筑处理工具 v2.0" width:520 
         
         addLog "执行模型合并功能 - 对选择的模型进行合并"
         
+        -- 记录开始时间
+        local processingStartTime = timeStamp()
+        
         -- 模拟处理过程
         addLog ("正在合并 " + buildingQueue.count as string + " 个模型...")
         updateProgress 50
@@ -1191,8 +1291,10 @@ rollout DistantArchitectureUI "🏗️ 远景建筑处理工具 v2.0" width:520 
         -- local mergedModel = mergeElements buildingQueue
         
         updateProgress 100
-        updateStatus "模型合并完成"
-        addLog "合并完成，生成统一的远景建筑模型"
+        -- 显示总耗时（包括分钟）
+        local totalTimeInfo = displayTotalTime processingStartTime
+        updateStatus ("模型合并完成，" + totalTimeInfo)
+        addLog ("合并完成，生成统一的远景建筑模型，" + totalTimeInfo)
     )
     
     -- 一键处理按钮事件
@@ -1232,6 +1334,9 @@ rollout DistantArchitectureUI "🏗️ 远景建筑处理工具 v2.0" width:520 
         updateStatus "开始一键处理流程..."
         addLog "=== 开始一键处理：分离模型 → 对齐地面 → 合并模型 ==="
         addLog ("预计处理时间: " + timeString)
+        
+        -- 记录开始时间
+        local processingStartTime = timeStamp()
         
         try
         (
@@ -1288,32 +1393,40 @@ rollout DistantArchitectureUI "🏗️ 远景建筑处理工具 v2.0" width:520 
                 (
                     local objName = obj.name
                     
-                    -- 步骤1: 先为模型创建同名层并将模型添加到层中
+                    -- 步骤1: 先为模型创建树形层结构并将原始模型添加到层中
                     addLog ("正在为模型 " + objName + " 创建层...")
                     try (
                         -- 为预处理的块创建层 - 使用原始模型名称（移除_chunk_XXX后缀）
                         local baseLayerName = objName
+                        local isChunk = false
+                        local chunkNum = ""
+                        
                         -- 如果是预处理后的块，提取原始模型名
                         if (findString objName "_chunk_") != undefined then
                         (
+                            isChunk = true
                             baseLayerName = substring objName 1 ((findString objName "_chunk_") - 1)
+                            chunkNum = substring objName ((findString objName "_chunk_") + 7) -1
                         )
                         
-                        -- 创建或获取层
-                        local modelLayer
-                        if (layerManager.getLayerFromName baseLayerName) == undefined then
+                        -- 创建或获取主层和预处理块层
+                        local modelLayer = safeCreateLayer baseLayerName
+                        local targetLayer = modelLayer
+                        
+                        -- 如果是预处理块，创建块专用层
+                        if isChunk then
                         (
-                            modelLayer = layerManager.newLayerFromName baseLayerName
-                        )
-                        else
-                        (
-                            modelLayer = layerManager.getLayerFromName baseLayerName
+                            local chunkLayerName = baseLayerName + "/chunks/" + chunkNum
+                            
+                            -- 创建并使用块专用层
+                            targetLayer = safeCreateLayer chunkLayerName
                         )
                         
-                        -- 将模型添加到层中
-                        modelLayer.addNode obj
+                        -- 将模型添加到适当的层中
+                        if targetLayer != undefined then
+                            safeAddNodeToLayer targetLayer obj
                         
-                        addLog ("已将模型 " + objName + " 添加到层 '" + baseLayerName + "' 中")
+                        addLog ("已将模型 " + objName + " 添加到层 '" + (if targetLayer != undefined then targetLayer.name else "未知层") + "' 中")
                     ) catch (
                         addLog ("创建层或添加模型到层时出错: " + (getCurrentException()))
                     )
@@ -1331,30 +1444,40 @@ rollout DistantArchitectureUI "🏗️ 远景建筑处理工具 v2.0" width:520 
                         -- 将分离的元素添加到总元素列表中
                         join allSeparatedElements separatedElements
                         
-                        -- 确保所有分离元素都在正确的层中
+                        -- 将所有分离出来的元素直接添加到当前分块层下
                         try (
-                            -- 获取层名 - 可能是原始模型名或预处理块的基础名
-                            local layerName = objName
+                            local targetLayer = undefined
+                            
+                            -- 获取目标层（分块层或模型层）
                             if (findString objName "_chunk_") != undefined then
                             (
-                                layerName = substring objName 1 ((findString objName "_chunk_") - 1)
-                            )
-                            
-                            -- 获取已创建的层引用
-                            local modelLayer = layerManager.getLayerFromName layerName
-                            if modelLayer != undefined then
-                            (
-                                -- 批量添加所有元素到层
-                                for elem in separatedElements do
-                                (
-                                    modelLayer.addNode elem
-                                )
-                                addLog ("成功从模型 " + objName + " 分离出 " + separatedElements.count as string + " 个元素并添加到层 '" + layerName + "'")
+                                -- 如果是预处理后的块，获取分块层
+                                targetLayer = LayerManager.getLayerFromName objName
                             )
                             else
                             (
-                                addLog ("警告: 未找到层 '" + layerName + "', 无法添加分离元素")
+                                -- 如果是原始模型，获取模型层
+                                targetLayer = LayerManager.getLayerFromName objName
                             )
+                            
+                            -- 将所有元素添加到目标层
+                            if targetLayer != undefined then
+                            (
+                                for elem in separatedElements do
+                                (
+                                    if isValidNode elem then
+                                        safeAddNodeToLayer targetLayer elem
+                                )
+                            )
+                            
+                            -- 删除原始分块模型
+                            if isValidNode obj then
+                            (
+                                addLog ("删除原始分块模型: " + obj.name)
+                                delete obj
+                            )
+                            
+                            addLog ("成功从模型 " + objName + " 分离出 " + separatedElements.count as string + " 个元素并直接添加到层 '" + objName + "' 中")
                         ) catch (
                             addLog ("将分离元素添加到层时出错: " + (getCurrentException()))
                         )
@@ -1394,17 +1517,21 @@ rollout DistantArchitectureUI "🏗️ 远景建筑处理工具 v2.0" width:520 
             
             -- 完成
             updateProgress 100
-            updateStatus "一键处理完成！"
-            addLog "=== 一键处理流程完成 ==="
+            -- 显示总耗时（包括分钟）
+            local totalTimeInfo = displayTotalTime processingStartTime
+            updateStatus ("一键处理完成！" + totalTimeInfo)
+            addLog ("=== 一键处理流程完成，" + totalTimeInfo + " ===")
             addLog "成功生成远景建筑模型"
             
-            messageBox "一键处理完成！\n\n已完成：\n1. 模型分离\n2. 地面对齐\n3. 模型合并\n\n请查看运行日志了解详细信息。" title:"处理完成"
+            messageBox ("一键处理完成！\n\n已完成：\n1. 模型分离\n2. 地面对齐\n3. 模型合并\n\n" + totalTimeInfo + "\n\n请查看运行日志了解详细信息。") title:"处理完成"
         )
         catch
         (
-            updateStatus "处理过程中发生错误"
-            addLog ("错误: " + getCurrentException())
-            messageBox "处理过程中发生错误，请查看运行日志" title:"错误"
+            -- 显示总耗时（包括分钟），即使出错
+            local totalTimeInfo = displayTotalTime processingStartTime
+            updateStatus ("处理过程中发生错误，" + totalTimeInfo)
+            addLog ("错误: " + getCurrentException() + "，" + totalTimeInfo)
+            messageBox ("处理过程中发生错误，" + totalTimeInfo + "\n请查看运行日志") title:"错误"
         )
         
         isProcessing = false
