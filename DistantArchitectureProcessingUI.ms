@@ -119,7 +119,7 @@ function safeCreateChildLayer parentLayerName childLayerName = (
 -- 预处理大型模型函数 - 将大型模型切割成较小的块（每块≤250元素）
 function preProcessLargeModel sourceModel maxElementsPerChunk:250 skipSizeCheck:false = (
     local chunks = #()
-    local modelName = sourceModel.name
+    local modelName = if isValidNode sourceModel then sourceModel.name else "未知模型"
     local chunkIndex = 1
     
     -- 转换为可编辑多边形
@@ -185,10 +185,10 @@ function preProcessLargeModel sourceModel maxElementsPerChunk:250 skipSizeCheck:
                     
                     -- 命名新块，使用三位数序号格式
                     local formattedIndex = formattedPrint chunkIndex format:"03d"
-                    newChunk.name = sourceModel.name + "-分块" + formattedIndex
+                    newChunk.name = (if isValidNode sourceModel then sourceModel.name else "未知模型") + "-分块" + formattedIndex
                     
                     -- 创建块专用层 - 分块模型直接作为主模型的子层
-                    local chunkLayerName = sourceModel.name + "-分块" + formattedIndex
+                    local chunkLayerName = (if isValidNode sourceModel then sourceModel.name else "未知模型") + "-分块" + formattedIndex
                     local chunkLayer = safeCreateChildLayer modelName chunkLayerName
                     
                     -- 添加到块数组
@@ -238,10 +238,10 @@ function preProcessLargeModel sourceModel maxElementsPerChunk:250 skipSizeCheck:
             
             -- 命名新块，使用三位数序号格式
             local formattedIndex = formattedPrint chunkIndex format:"03d"
-            newChunk.name = sourceModel.name + "-分块" + formattedIndex
+            newChunk.name = (if isValidNode sourceModel then sourceModel.name else "未知模型") + "-分块" + formattedIndex
             
             -- 创建块专用层 - 分块模型直接作为主模型的子层
-            local chunkLayerName = sourceModel.name + "-分块" + formattedIndex
+            local chunkLayerName = (if isValidNode sourceModel then sourceModel.name else "未知模型") + "-分块" + formattedIndex
             local chunkLayer = safeCreateChildLayer modelName chunkLayerName
             
             -- 添加到块数组
@@ -454,7 +454,7 @@ function decomposeModel sourceModel timeEstimate:(TimeEstimateStruct totalFaces:
                         
                         -- 命名新元素，使用三位数序号格式
                         local formattedIndex = formattedPrint j format:"03d"
-                        newElement.name = sourceModel.name + "-元素" + formattedIndex
+                        newElement.name = (if isValidNode sourceModel then sourceModel.name else "未知模型") + "-元素" + formattedIndex
                         
                         -- 验证元素有效性
                         if newElement.numfaces > 0 then (
@@ -494,6 +494,169 @@ function decomposeModel sourceModel timeEstimate:(TimeEstimateStruct totalFaces:
     )
     
     return elements
+)
+
+-- 检测位于地形上方的模型
+function findObjectsAboveTerrain terrain heightThreshold:1.0 rayDistance:10000.0 debug:false specificObjects:#() = (
+    local candidateObjects = #()
+    local aboveTerrain = #()
+    local resultData = #()
+    
+    -- 记录地形信息
+    if debug and isValidNode terrain then format "地形对象: %, 位置: %\n" terrain.name terrain.pos
+    
+    -- 获取地形边界框，用于更准确的高度检测
+    local terrainBbox = if isValidNode terrain then nodeGetBoundingBox terrain (matrix3 1) else #([0,0,0], [0,0,0])
+    local terrainTopZ = terrainBbox[2].z  -- 地形最高点Z坐标
+    local terrainBottomZ = terrainBbox[1].z  -- 地形最低点Z坐标
+    
+    if debug then format "地形边界: 底部Z=%, 顶部Z=%\n" terrainBottomZ terrainTopZ
+    
+    -- 确定要检测的对象列表
+    if specificObjects.count > 0 then (
+        -- 如果提供了特定对象列表，则使用该列表
+        candidateObjects = specificObjects
+        if debug then format "使用指定的 % 个对象进行检测\n" candidateObjects.count
+    ) else (
+        -- 否则获取所有可检测的对象（排除地形本身、灯光、相机等）
+        for obj in objects do (
+            if isValidNode obj and obj != terrain and 
+               (superClassOf obj == GeometryClass or superClassOf obj == Shape) and
+               not isKindOf obj Light and not isKindOf obj Camera then (
+                append candidateObjects obj
+            )
+        )
+        if debug then format "找到 % 个候选对象进行检测\n" candidateObjects.count
+    )
+    
+    for obj in candidateObjects do (
+        -- 获取对象包围盒底部中心（世界坐标）
+        local bbox = nodeGetBoundingBox obj (matrix3 1)
+        
+        -- 先计算坐标值
+        local centerX = (bbox[1].x + bbox[2].x) / 2.0
+        local centerY = (bbox[1].y + bbox[2].y) / 2.0
+        local bottomZ = bbox[1].z
+        
+        -- 创建底部中心点
+        local bottomCenter = Point3 centerX centerY bottomZ
+        
+        -- 检测对象是否位于地形上方
+        -- 使用更稳健的检测方法，比较底部Z坐标和地形顶部Z坐标
+        local distanceToTerrain = bottomZ - terrainTopZ
+        
+        if debug then (
+            format "检测对象: %, 底部中心坐标: %, 地形高度: %, 高度差: %\n" obj.name bottomCenter terrainTopZ distanceToTerrain
+        )
+        
+        -- 检查高度差是否超过阈值
+        if distanceToTerrain >= heightThreshold then (
+            if debug then format "对象 % 满足悬空条件，高度差: %\n" obj.name distanceToTerrain
+            
+            append aboveTerrain obj
+            
+            -- 收集对象数据用于JSON
+            local objData = #()
+            objData["name"] = obj.name
+            objData["position"] = [obj.pos.x, obj.pos.y, obj.pos.z]
+            objData["height_above_terrain"] = distanceToTerrain
+            objData["terrain_point"] = [centerX, centerY, terrainTopZ]
+            objData["terrain_name"] = if isValidNode terrain then terrain.name else "未知地形"
+            
+            append resultData objData
+        )
+    )
+    
+    if debug then (
+        format "检测完成: 找到 % 个悬空对象\n" aboveTerrain.count
+        for i = 1 to min aboveTerrain.count 10 do (
+            format "悬空对象 %: %\n" i aboveTerrain[i].name
+        )
+    )
+    
+    return #(aboveTerrain, resultData)
+)
+
+-- 表面对齐函数 - 基于射线相交的高效对齐算法
+function alignToSurface element targetSurface = (
+    -- 获取元素的底部中心点作为射线起点
+    local bbox = nodeGetBoundingBox element element.transform
+    local bottomCenter = [(bbox[1].x + bbox[2].x)/2, (bbox[1].y + bbox[2].y)/2, bbox[1].z]
+    
+    -- 创建向下的射线（负Z方向）
+    local rayStart = bottomCenter + [0, 0, 10] -- 从上方10单位开始射线
+    local rayDir = [0, 0, -1] -- 向下射线方向
+    
+    -- 执行射线相交测试
+    local hit = intersectRayEx targetSurface rayStart rayDir
+    
+    -- 如果射线相交成功
+    if hit != undefined then (
+        -- 获取交点位置和法线
+        local hitPos = hit.pos
+        local hitNorm = hit.dir
+        
+        -- 计算元素底部到交点的偏移向量
+        local offsetVector = hitPos - bottomCenter
+        
+        -- 应用位移，保持元素的原始旋转
+        element.position += offsetVector
+        
+        -- 可选：根据表面法线调整元素旋转（如果需要）
+        -- 这里只进行简单的位置对齐，不改变旋转
+        
+        return true -- 对齐成功
+    )
+    
+    return false -- 对齐失败
+)
+
+-- 将检测结果保存为JSON文件
+function saveDetectionResultToJSON resultData fileName = (
+    try (
+        local file = createFile fileName
+        if file == undefined then return false
+
+        -- 开始JSON数组
+        format "[\n" to:file
+
+        -- 添加每个对象数据
+        for i = 1 to resultData.count do (
+            local objData = resultData[i]
+            
+            -- 开始对象
+            format "  {\n" to:file
+            
+            -- 添加对象名称
+            format "    \"name\": \"%\",\n" objData["name"] to:file
+            
+            -- 添加位置
+            local pos = objData["position"]
+            format "    \"position\": [%, %, %],\n" pos[1] pos[2] pos[3] to:file
+            
+            -- 添加高度差
+            format "    \"height_above_terrain\": %,\n" objData["height_above_terrain"] to:file
+            
+            -- 添加地形点
+            local terrainPoint = objData["terrain_point"]
+            format "    \"terrain_point\": [%, %, %]\n" terrainPoint[1] terrainPoint[2] terrainPoint[3] to:file
+            
+            -- 结束对象
+            if i < resultData.count then
+                format "  },\n" to:file
+            else
+                format "  }\n" to:file
+        )
+        
+        -- 结束JSON数组
+        format "]\n" to:file
+        
+        close file
+        return true
+    ) catch (
+        format "保存JSON文件出错: %\n" (getCurrentException())
+        return false
+    )
 )
 
 rollout DistantArchitectureUI "🏗️ 远景建筑处理工具 v2.0" width:520 height:620
@@ -538,7 +701,7 @@ rollout DistantArchitectureUI "🏗️ 远景建筑处理工具 v2.0" width:520 
     groupBox grpIndependentExec "⚙️ 独立执行" width:480 height:75 pos:[20,270]
     
     button btnSeparateModel "✂️ 分离模型" width:120 height:35 pos:[50,300] color:[255,200,100] across:3 tooltip:"左键-常规分离 | 右键-强制预处理分块"
-    button btnAlignGround "📐 对齐地面" width:120 height:35 pos:[200,300] color:[150,255,150]
+    button btnAlignGround "📐 对齐地面" width:120 height:35 pos:[200,300] color:[150,255,150] tooltip:"先检测悬空物体，然后对齐到地面"
     button btnMergeModel "🔗 合并模型" width:120 height:35 pos:[350,300] color:[255,150,255]
     
 
@@ -1237,34 +1400,300 @@ rollout DistantArchitectureUI "🏗️ 远景建筑处理工具 v2.0" width:520 
             return()
         )
         
-        updateStatus "开始对齐地面..."
+        updateStatus "开始预处理: 检测地形上方的物体..."
         updateProgress 0
         
-        addLog "执行地面对齐功能 - 将已经选择的模型对齐到地形队列中的地形模型上"
+        addLog "执行地面对齐功能 - 先检测悬空物体，然后对齐到地形"
         
         -- 记录开始时间
         local processingStartTime = timeStamp()
         
-        -- 模拟处理过程
-        local targetTerrain = terrainQueue[1] -- 使用第一个地形作为目标
-        for i = 1 to buildingQueue.count do
-        (
-            local obj = buildingQueue[i]
-            if isValidNode obj then
-            (
-                addLog ("正在对齐模型: " + obj.name + " 到地形: " + targetTerrain.name)
-                updateProgress (i as float / buildingQueue.count * 100)
-                -- 这里调用实际的对齐函数
-                -- alignToSurface obj targetTerrain
-            )
-            windows.processPostedMessages()
-        )
+        -- 获取第一个地形模型作为检测基准
+        local targetTerrain = terrainQueue[1]
+        addLog ("使用地形模型: " + (if isValidNode targetTerrain then targetTerrain.name else "未知地形") + " 作为检测基准")
         
-        updateProgress 100
-        -- 显示总耗时（包括分钟）
-        local totalTimeInfo = displayTotalTime processingStartTime
-        updateStatus ("地面对齐完成，" + totalTimeInfo)
-        addLog ("===== 地面对齐完成，" + totalTimeInfo + " =====")
+        -- 设置高度阈值
+        local heightThreshold = 1.0
+        local heightDlg = dotNetObject "System.Windows.Forms.Form"
+        heightDlg.Text = "设置悬空检测参数"
+        heightDlg.Width = 350
+        heightDlg.Height = 180
+        heightDlg.FormBorderStyle = (dotNetClass "System.Windows.Forms.FormBorderStyle").FixedDialog
+        heightDlg.StartPosition = (dotNetClass "System.Windows.Forms.FormStartPosition").CenterScreen
+        
+        local lblHeight = dotNetObject "System.Windows.Forms.Label"
+        lblHeight.Text = "最小高度阈值 (3ds Max单位):"
+        lblHeight.Location = dotNetObject "System.Drawing.Point" 20 20
+        lblHeight.Width = 200
+        heightDlg.Controls.Add lblHeight
+        
+        local txtHeight = dotNetObject "System.Windows.Forms.TextBox"
+        txtHeight.Text = heightThreshold as string
+        txtHeight.Location = dotNetObject "System.Drawing.Point" 20 50
+        txtHeight.Width = 100
+        heightDlg.Controls.Add txtHeight
+        
+        local lblDescription = dotNetObject "System.Windows.Forms.Label"
+        lblDescription.Text = "预处理将检测地形上方的悬空物体并保存结果用于对齐"
+        lblDescription.Location = dotNetObject "System.Drawing.Point" 20 80
+        lblDescription.Width = 300
+        heightDlg.Controls.Add lblDescription
+        
+        local btnOK = dotNetObject "System.Windows.Forms.Button"
+        btnOK.Text = "开始处理"
+        btnOK.Location = dotNetObject "System.Drawing.Point" 100 110
+        btnOK.DialogResult = (dotNetClass "System.Windows.Forms.DialogResult").OK
+        heightDlg.Controls.Add btnOK
+        
+        local btnCancel = dotNetObject "System.Windows.Forms.Button"
+        btnCancel.Text = "取消"
+        btnCancel.Location = dotNetObject "System.Drawing.Point" 200 110
+        btnCancel.DialogResult = (dotNetClass "System.Windows.Forms.DialogResult").Cancel
+        heightDlg.Controls.Add btnCancel
+        
+        local result = heightDlg.ShowDialog()
+        
+        if result == (dotNetClass "System.Windows.Forms.DialogResult").OK then
+        (
+            try (
+                heightThreshold = txtHeight.Text as float
+                if heightThreshold <= 0 then heightThreshold = 1.0
+            ) catch (
+                heightThreshold = 1.0
+            )
+            
+            addLog ("设置高度阈值为: " + heightThreshold as string)
+            
+            -- 执行检测，启用调试模式
+            updateProgress 20
+            addLog "正在执行悬空物体射线检测..."
+            
+            -- 获取检测结果和数据
+            local detectionResult = findObjectsAboveTerrain targetTerrain heightThreshold:heightThreshold debug:true
+            local aboveObjects = detectionResult[1]
+            local resultData = detectionResult[2]
+            
+            -- 添加调试信息
+            addLog ("检测到 " + aboveObjects.count as string + " 个悬空物体")
+            if resultData.count > 0 then
+                addLog ("收集了 " + resultData.count as string + " 条数据记录")
+            else
+                addLog "警告: 没有收集到任何数据记录!"
+                
+            -- 保存检测结果为JSON
+            local currentTimestamp = timeStamp() as string
+            local jsonFileName = (getDir #temp) + "\\悬空检测_" + currentTimestamp + ".json"
+            addLog ("将保存结果到: " + jsonFileName)
+            
+            if resultData.count > 0 then (
+                local saveResult = saveDetectionResultToJSON resultData jsonFileName
+                
+                if saveResult then (
+                    addLog ("检测结果已保存到: " + jsonFileName)
+                    if doesFileExist jsonFileName then (
+                        local fileSize = getFileSize jsonFileName
+                        addLog ("JSON文件大小: " + fileSize as string + " 字节")
+                    ) else (
+                        addLog "警告: JSON文件未成功创建!"
+                    )
+                ) else (
+                    addLog "保存检测结果失败!"
+                )
+            ) else (
+                addLog "没有数据可保存，跳过JSON文件创建"
+            )
+            
+            -- 更新进度
+            updateProgress 40
+            
+            -- 处理检测结果
+            if aboveObjects.count > 0 then
+            (
+                -- 显示检测结果
+                addLog ("检测到 " + aboveObjects.count as string + " 个位于地形上方至少 " + heightThreshold as string + " 单位的物体")
+                
+                -- 输出前几个检测到的对象名称
+                local showCount = min aboveObjects.count 5
+                addLog "检测到的对象包括:"
+                for i = 1 to showCount do (
+                    addLog ("  " + i as string + ". " + aboveObjects[i].name)
+                )
+                if aboveObjects.count > showCount then (
+                    addLog ("  ...以及其他 " + (aboveObjects.count - showCount) as string + " 个对象")
+                )
+                
+                -- 询问是否继续对齐处理
+                local continueMsg = "检测到 " + aboveObjects.count as string + " 个悬空物体。\n"
+                continueMsg += "是否继续进行对齐操作？\n\n"
+                continueMsg += "注意: 对齐操作会改变这些物体的位置。"
+                
+                if queryBox continueMsg title:"检测结果" then
+                (
+                    -- 继续执行对齐操作
+                    updateStatus "开始对齐地面..."
+                    updateProgress 50
+                    
+                    -- 处理每个建筑模型，根据检测结果找到对应的地形
+                for i = 1 to buildingQueue.count do
+                (
+                    local obj = buildingQueue[i]
+                    if isValidNode obj then
+                    (
+                        -- 查找该模型对应的地形
+                        local matchedTerrain = undefined
+                        
+                        -- 首先在检测结果中查找该模型
+                        local foundInResults = false
+                        for dataItem in resultData do
+                        (
+                            if dataItem["name"] == obj.name then
+                            (
+                                -- 找到了该模型的检测数据，获取对应的地形名称
+                                local terrainName = dataItem["terrain_name"]
+                                
+                                -- 在地形队列中查找对应名称的地形
+                                for terrainObj in terrainQueue do
+                                (
+                                    if terrainObj.name == terrainName then
+                                    (
+                                        matchedTerrain = terrainObj
+                                        foundInResults = true
+                                        exit -- 找到匹配地形，退出循环
+                                    )
+                                )
+                                
+                                if matchedTerrain != undefined then exit -- 找到匹配地形，退出外层循环
+                            )
+                        )
+                        
+                        -- 如果在检测结果中没有找到，则不进行对齐，而是放入专门的层中管理
+                        if not foundInResults then
+                        (
+                            -- 创建专门的层来管理没有找到匹配地形的模型
+                            local noMatchLayerName = "未匹配地形的模型"
+                            local noMatchLayer = safeCreateLayer noMatchLayerName
+                            
+                            -- 将模型添加到该层
+                            if noMatchLayer != undefined then
+                            (
+                                safeAddNodeToLayer noMatchLayer obj
+                                addLog ("  模型: " + obj.name + " 未找到匹配地形，已添加到层 '" + noMatchLayerName + "' 中")
+                            )
+                        )
+                        else
+                        (
+                            addLog ("正在对齐模型: " + obj.name + " 到地形: " + (if isValidNode matchedTerrain then matchedTerrain.name else "未知地形"))
+                            updateProgress (50 + i as float / buildingQueue.count * 50)
+                            
+                            -- 调用实际的对齐函数
+                            local alignResult = alignToSurface obj matchedTerrain
+                            
+                            if alignResult then
+                                addLog ("  成功对齐模型: " + obj.name)
+                            else
+                                addLog ("  警告: 无法对齐模型: " + obj.name + "，可能没有找到交点")
+                        )
+                    )
+                    windows.processPostedMessages()
+                )
+                    
+                    updateProgress 100
+                    -- 显示总耗时（包括分钟）
+                    local totalTimeInfo = displayTotalTime processingStartTime
+                    updateStatus ("地面对齐完成，" + totalTimeInfo)
+                    addLog ("===== 地面对齐完成，" + totalTimeInfo + " =====")
+                )
+                else
+                (
+                    updateStatus "用户取消了对齐操作"
+                    addLog "用户查看悬空检测结果后取消了对齐操作"
+                    updateProgress 100
+                )
+            )
+            else
+            (
+                addLog "未检测到悬空物体，继续进行对齐操作"
+                
+                -- 直接执行对齐操作
+                updateStatus "开始对齐地面..."
+                updateProgress 50
+                
+                -- 处理每个建筑模型，根据检测结果找到对应的地形
+                for i = 1 to buildingQueue.count do
+                (
+                    local obj = buildingQueue[i]
+                    if isValidNode obj then
+                    (
+                        -- 查找该模型对应的地形
+                        local matchedTerrain = undefined
+                        
+                        -- 首先在检测结果中查找该模型
+                        local foundInResults = false
+                        for dataItem in resultData do
+                        (
+                            if dataItem["name"] == obj.name then
+                            (
+                                -- 找到了该模型的检测数据，获取对应的地形名称
+                                local terrainName = dataItem["terrain_name"]
+                                
+                                -- 在地形队列中查找对应名称的地形
+                                for terrainObj in terrainQueue do
+                                (
+                                    if terrainObj.name == terrainName then
+                                    (
+                                        matchedTerrain = terrainObj
+                                        foundInResults = true
+                                        exit -- 找到匹配地形，退出循环
+                                    )
+                                )
+                                
+                                if matchedTerrain != undefined then exit -- 找到匹配地形，退出外层循环
+                            )
+                        )
+                        
+                        -- 如果在检测结果中没有找到，则不进行对齐，而是放入专门的层中管理
+                        if not foundInResults then
+                        (
+                            -- 创建专门的层来管理没有找到匹配地形的模型
+                            local noMatchLayerName = "未匹配地形的模型"
+                            local noMatchLayer = safeCreateLayer noMatchLayerName
+                            
+                            -- 将模型添加到该层
+                            if noMatchLayer != undefined then
+                            (
+                                safeAddNodeToLayer noMatchLayer obj
+                                addLog ("  模型: " + obj.name + " 未找到匹配地形，已添加到层 '" + noMatchLayerName + "' 中")
+                            )
+                        )
+                        else
+                        (
+                            addLog ("正在对齐模型: " + obj.name + " 到地形: " + (if isValidNode matchedTerrain then matchedTerrain.name else "未知地形"))
+                            updateProgress (50 + i as float / buildingQueue.count * 50)
+                            
+                            -- 调用实际的对齐函数
+                            local alignResult = alignToSurface obj matchedTerrain
+                            
+                            if alignResult then
+                                addLog ("  成功对齐模型: " + obj.name)
+                            else
+                                addLog ("  警告: 无法对齐模型: " + obj.name + "，可能没有找到交点")
+                        )
+                    )
+                    windows.processPostedMessages()
+                )
+                
+                updateProgress 100
+                -- 显示总耗时（包括分钟）
+                local totalTimeInfo = displayTotalTime processingStartTime
+                updateStatus ("地面对齐完成，" + totalTimeInfo)
+                addLog ("===== 地面对齐完成，" + totalTimeInfo + " =====")
+            )
+        )
+        else
+        (
+            updateStatus "用户取消了操作"
+            addLog "用户取消了地面对齐操作"
+        )
     )
     
     on btnMergeModel pressed do
@@ -1495,14 +1924,82 @@ rollout DistantArchitectureUI "🏗️ 远景建筑处理工具 v2.0" width:520 
             addLog "步骤2: 执行地面对齐"
             updateProgress 40
             
+            -- 先执行悬空检测，获取每个模型对应的地形
             local targetTerrain = terrainQueue[1]
+            addLog ("使用地形模型: " + (if isValidNode targetTerrain then targetTerrain.name else "未知地形") + " 作为检测基准")
+            
+            -- 设置高度阈值
+            local heightThreshold = 1.0
+            
+            -- 执行检测
+            addLog "正在执行悬空物体射线检测..."
+            local detectionResult = findObjectsAboveTerrain targetTerrain heightThreshold:heightThreshold debug:true
+            local aboveObjects = detectionResult[1]
+            local resultData = detectionResult[2]
+            
+            -- 添加调试信息
+            addLog ("检测到 " + aboveObjects.count as string + " 个悬空物体")
+            
+            -- 对齐每个建筑模型到对应地形
             for i = 1 to buildingQueue.count do
             (
                 local obj = buildingQueue[i]
                 if isValidNode obj then
                 (
-                    addLog ("对齐模型: " + obj.name + " 到地形: " + targetTerrain.name)
-                    updateProgress (40 + i as float / buildingQueue.count * 30)
+                    -- 查找该模型对应的地形
+                    local matchedTerrain = undefined
+                    
+                    -- 首先在检测结果中查找该模型
+                    local foundInResults = false
+                    for dataItem in resultData do
+                    (
+                        if dataItem["name"] == obj.name then
+                        (
+                            -- 找到了该模型的检测数据，获取对应的地形名称
+                            local terrainName = dataItem["terrain_name"]
+                            
+                            -- 在地形队列中查找对应名称的地形
+                            for terrainObj in terrainQueue do
+                            (
+                                if terrainObj.name == terrainName then
+                                (
+                                    matchedTerrain = terrainObj
+                                    foundInResults = true
+                                    exit -- 找到匹配地形，退出循环
+                                )
+                            )
+                            
+                            if matchedTerrain != undefined then exit -- 找到匹配地形，退出外层循环
+                        )
+                    )
+                    
+                    -- 如果在检测结果中没有找到，则不进行对齐，而是放入专门的层中管理
+                    if not foundInResults then
+                    (
+                        -- 创建专门的层来管理没有找到匹配地形的模型
+                        local noMatchLayerName = "未匹配地形的模型"
+                        local noMatchLayer = safeCreateLayer noMatchLayerName
+                        
+                        -- 将模型添加到该层
+                        if noMatchLayer != undefined then
+                        (
+                            safeAddNodeToLayer noMatchLayer obj
+                            addLog ("  模型: " + obj.name + " 未找到匹配地形，已添加到层 '" + noMatchLayerName + "' 中")
+                        )
+                    )
+                    else
+                    (
+                        addLog ("对齐模型: " + obj.name + " 到地形: " + (if isValidNode matchedTerrain then matchedTerrain.name else "未知地形"))
+                        updateProgress (40 + i as float / buildingQueue.count * 30)
+                        
+                        -- 调用实际的对齐函数
+                        local alignResult = alignToSurface obj matchedTerrain
+                        
+                        if alignResult then
+                            addLog ("  成功对齐模型: " + obj.name)
+                        else
+                            addLog ("  警告: 无法对齐模型: " + obj.name + "，可能没有找到交点")
+                    )
                 )
                 windows.processPostedMessages()
             )
